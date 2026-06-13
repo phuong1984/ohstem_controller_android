@@ -85,6 +85,11 @@ class VoiceViewModel @Inject constructor(
         }
     }
 
+    override fun onCleared() {
+        super.onCleared()
+        voiceManager.stopListening()
+    }
+
     fun startListening() = voiceManager.startListening()
     fun stopListening() = voiceManager.stopListening()
 }

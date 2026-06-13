@@ -13,6 +13,7 @@ import org.vosk.android.StorageService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
+import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.isActive
@@ -32,7 +33,7 @@ class VoskVoiceManager @Inject constructor(
     private var recognizer: Recognizer? = null
     private var audioRecord: AudioRecord? = null
     private var recognitionJob: Job? = null
-    private val scope = CoroutineScope(Dispatchers.IO)
+    private val scope = CoroutineScope(Dispatchers.IO + SupervisorJob())
 
     override fun initModel() {
         _state.value = VoiceState.Initializing
@@ -106,7 +107,9 @@ class VoskVoiceManager @Inject constructor(
                         r.reset()
                     } else {
                         val text = parsePartialText(r.partialResult)
-                        _state.value = VoiceState.Partial(text)
+                        if (text.isNotEmpty()) {
+                            _state.value = VoiceState.Partial(text)
+                        }
                     }
                 }
             }
