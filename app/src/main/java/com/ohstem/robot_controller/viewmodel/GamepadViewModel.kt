@@ -40,11 +40,19 @@ class GamepadViewModel @Inject constructor(
     private var lastCommandTime = 0L
 
     init {
-        // Seed default profile with UP D-Pad mapping if none exists
+        // Seed default profile with UP D-Pad mapping
         viewModelScope.launch {
             val profiles = repository.getProfiles().first()
-            if (profiles.isEmpty()) {
-                val profileId = repository.createProfile("Default", isActive = true)
+            val profileId: Long = if (profiles.isEmpty()) {
+                repository.createProfile("Default", isActive = true)
+            } else {
+                profiles.firstOrNull { it.isActive }?.id ?: profiles.first().id
+            }
+
+            val bindings = repository.getBindings(profileId).first()
+            val hasUp = bindings.any { it.sourceType == "GAMEPAD_BUTTON" && it.sourceCode == "UP" }
+
+            if (!hasUp) {
                 val nak = "\u0015"
                 val actionId = repository.saveAction(VirtualAction(
                     name = "Move Forward",

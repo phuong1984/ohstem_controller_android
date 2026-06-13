@@ -12,29 +12,43 @@ class MappingEngine @Inject constructor(
     private val repository: MappingRepository,
     private val bleManager: BleManager
 ) {
-    suspend fun handleInput(sourceType: String, sourceCode: String, isActivation: Boolean = true): String {
-        // 1. Get current active profile (simplified for now)
+    private var cache: Map<Pair<String, String>, Pair<String?, String?>>? = null
+
+    private suspend fun loadCache() {
         val profiles = repository.getProfiles().first()
-        val activeProfile = profiles.find { it.isActive } ?: return ""
-        
-        // 2. Find binding for this input
+        val activeProfile = profiles.find { it.isActive } ?: return
         val bindings = repository.getBindings(activeProfile.id).first()
-        val binding = bindings.find { it.sourceType == sourceType && it.sourceCode == sourceCode } ?: return ""
-        
-        // 3. Find associated virtual action
         val actions = repository.getActions(activeProfile.id).first()
-        val action = actions.find { it.id == binding.virtualActionId } ?: return ""
-        
-        // 4. Send command to BLE
-        val command = if (isActivation) action.activationCommand else action.deactivationCommand
-        command?.let { 
+        val map = mutableMapOf<Pair<String, String>, Pair<String?, String?>>()
+        for (b in bindings) {
+            val a = actions.find { it.id == b.virtualActionId }
+            if (a != null) {
+                map[Pair(b.sourceType, b.sourceCode)] = Pair(a.activationCommand, a.deactivationCommand)
+            }
+        }
+        cache = map
+    }
+
+    suspend fun handleInput(sourceType: String, sourceCode: String, isActivation: Boolean = true): String {
+        if (cache == null) loadCache()
+        val entry = cache?.get(Pair(sourceType, sourceCode))
+        val command = if (entry != null) {
+            if (isActivation) entry.first else entry.second
+        } else {
+            cache = null
+            loadCache()
+            val retry = cache?.get(Pair(sourceType, sourceCode))
+            if (retry != null) {
+                if (isActivation) retry.first else retry.second
+            } else null
+        }
+        command?.let {
             bleManager.sendCommand(it)
             return it
         } ?: return ""
     }
 
     suspend fun handleJoystick(axis: String, value: Float): String {
-        // For joystick, format command like: LX=45, LY=-100
         val intValue = (value * 100).toInt().coerceIn(-100, 100)
         val command = "$axis=$intValue"
         bleManager.sendCommand(command)

@@ -14,6 +14,7 @@ import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import kotlinx.coroutines.withContext
+import java.text.Normalizer
 import javax.inject.Inject
 
 @HiltViewModel
@@ -72,13 +73,30 @@ class VoiceViewModel @Inject constructor(
                 ))
             }
 
+            // ✅ FIX: Re-read bindings (may have just inserted new ones) and tell
+            // the recognizer to constrain itself to exactly this vocabulary.
+            // Vosk's grammar-constrained mode gives near-perfect accuracy for
+            // a small fixed command set compared to free-form open-vocabulary.
+            val allBindings = repository.getBindings(profileId).first()
+            val voiceWords = allBindings
+                .filter { it.sourceType == "VOICE_COMMAND" }
+                .map { it.sourceCode }
+            val decoys = listOf("vâng", "không", "ừ", "à", "ồ", "xin chờ")
+            voiceManager.setGrammar(voiceWords + decoys)
+
             withContext(Dispatchers.IO) { voiceManager.initModel() }
         }
 
         viewModelScope.launch {
-            state.collectLatest { voiceState ->
+            state.collect { voiceState ->
                 if (voiceState is VoiceState.Result) {
-                    val command = voiceState.text.lowercase().trim()
+                    // ✅ FIX: Normalize to NFC so Vietnamese diacritics (e.g.
+                    // "ới" as combining chars) compare equal to the stored
+                    // binding codes regardless of Vosk's unicode normalization.
+                    val command = Normalizer.normalize(
+                        voiceState.text.lowercase().trim(),
+                        Normalizer.Form.NFC
+                    )
                     mappingEngine.handleInput("VOICE_COMMAND", command)
                 }
             }

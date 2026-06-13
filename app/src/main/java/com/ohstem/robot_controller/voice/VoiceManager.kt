@@ -16,4 +16,10 @@ interface VoiceManager {
     fun startListening()
     fun stopListening()
     fun initModel()
+    /**
+     * Constrain recognition to the given vocabulary words.
+     * Must be called before [startListening] to take effect.
+     * Passing an empty list resets to free-form (open vocabulary) mode.
+     */
+    fun setGrammar(words: List<String>)
 }

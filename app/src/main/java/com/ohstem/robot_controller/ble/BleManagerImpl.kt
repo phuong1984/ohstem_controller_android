@@ -9,6 +9,7 @@ import android.util.Log
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
+import java.util.concurrent.ConcurrentLinkedQueue
 import javax.inject.Inject
 import javax.inject.Singleton
 
@@ -24,6 +25,9 @@ class BleManagerImpl @Inject constructor(
     private var bluetoothGatt: BluetoothGatt? = null
     private var txCharacteristic: BluetoothGattCharacteristic? = null
     private var rxCharacteristic: BluetoothGattCharacteristic? = null
+
+    private val commandQueue = ConcurrentLinkedQueue<String>()
+    @Volatile private var isWriting = false
 
     private var lastConnectedAddress: String? = null
     private var userInitiatedDisconnect = false
@@ -80,6 +84,20 @@ class BleManagerImpl @Inject constructor(
                     Log.e(TAG, "UART Service NOT found!")
                 }
             }
+        }
+
+        override fun onCharacteristicWrite(
+            gatt: BluetoothGatt,
+            characteristic: BluetoothGattCharacteristic,
+            status: Int
+        ) {
+            isWriting = false
+            if (status == BluetoothGatt.GATT_SUCCESS) {
+                Log.d(TAG, "Write completed successfully")
+            } else {
+                Log.w(TAG, "Write failed with status: $status")
+            }
+            processQueue()
         }
     }
 
@@ -150,10 +168,19 @@ class BleManagerImpl @Inject constructor(
 
     @SuppressLint("MissingPermission")
     override fun sendCommand(command: String) {
+        commandQueue.offer(command)
+        processQueue()
+    }
+
+    @SuppressLint("MissingPermission")
+    private fun processQueue() {
+        if (isWriting) return
+        val command = commandQueue.poll() ?: return
         val char = rxCharacteristic ?: return
+        isWriting = true
         char.value = command.toByteArray()
         bluetoothGatt?.writeCharacteristic(char)
-        Log.d(TAG, "Sent command: $command")
+        Log.d(TAG, "Sending command: $command (${commandQueue.size} queued)")
     }
 
     private fun handleDisconnection() {

@@ -1,12 +1,18 @@
 package com.ohstem.robot_controller.ui.screens.voice
 
+import android.Manifest
+import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.foundation.layout.*
 import androidx.compose.material3.*
 import androidx.compose.runtime.*
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
+import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ohstem.robot_controller.viewmodel.VoiceViewModel
 import com.ohstem.robot_controller.voice.VoiceState
@@ -14,11 +20,23 @@ import com.ohstem.robot_controller.voice.VoiceState
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceScreen(viewModel: VoiceViewModel = hiltViewModel()) {
+    val context = LocalContext.current
     val state by viewModel.state.collectAsState()
     var lastCommand by remember { mutableStateOf("") }
+    var permissionRequested by remember { mutableStateOf(false) }
 
-    LaunchedEffect(Unit) {
-        viewModel.startListening()
+    val permissionLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        if (granted) {
+            viewModel.startListening()
+        }
+    }
+
+    DisposableEffect(Unit) {
+        onDispose {
+            viewModel.stopListening()
+        }
     }
 
     LaunchedEffect(state) {
@@ -94,10 +112,16 @@ fun VoiceScreen(viewModel: VoiceViewModel = hiltViewModel()) {
                 Spacer(modifier = Modifier.height(24.dp))
             }
 
+            val isPermissionError = state is VoiceState.Error &&
+                (state as? VoiceState.Error)?.message?.contains("permission", ignoreCase = true) == true
+
             Button(
                 onClick = {
-                    if (state is VoiceState.Listening) viewModel.stopListening()
-                    else viewModel.startListening()
+                    when {
+                        state is VoiceState.Listening -> viewModel.stopListening()
+                        isPermissionError -> permissionLauncher.launch(Manifest.permission.RECORD_AUDIO)
+                        else -> viewModel.startListening()
+                    }
                 },
                 modifier = Modifier.size(120.dp),
                 shape = MaterialTheme.shapes.large,
@@ -109,9 +133,12 @@ fun VoiceScreen(viewModel: VoiceViewModel = hiltViewModel()) {
                 )
             ) {
                 Text(
-                    if (state is VoiceState.Listening) "Stop"
-                    else if (state is VoiceState.Error) "Retry"
-                    else "Start",
+                    when {
+                        state is VoiceState.Listening -> "Stop"
+                        isPermissionError -> "Grant Permission"
+                        state is VoiceState.Error -> "Retry"
+                        else -> "Start"
+                    },
                     style = MaterialTheme.typography.titleMedium
                 )
             }
