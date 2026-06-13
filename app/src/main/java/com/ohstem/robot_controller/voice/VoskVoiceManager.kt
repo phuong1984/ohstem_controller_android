@@ -7,8 +7,9 @@ import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import androidx.core.content.ContextCompat
-import com.alphacephei.vosk.Model
-import com.alphacephei.vosk.Recognizer
+import org.vosk.Model
+import org.vosk.Recognizer
+import org.vosk.android.StorageService
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.Job
@@ -36,7 +37,8 @@ class VoskVoiceManager @Inject constructor(
     override fun initModel() {
         _state.value = VoiceState.Initializing
         try {
-            model = Model(context, "vosk-model-small-vn")
+            val modelPath = StorageService.sync(context, "vosk-model-small-vn", "vosk-model-small-vn")
+            model = Model(modelPath)
             recognizer = Recognizer(model, 16000.0f)
             _state.value = VoiceState.Idle
         } catch (e: Exception) {
@@ -97,7 +99,7 @@ class VoskVoiceManager @Inject constructor(
             while (isActive && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val bytesRead = record.read(buffer, 0, buffer.size)
                 if (bytesRead > 0) {
-                    val isFinal = r.acceptWaveform(buffer, bytesRead)
+                    val isFinal = r.acceptWaveForm(buffer, bytesRead)
                     if (isFinal) {
                         val text = parseResultText(r.result)
                         _state.value = VoiceState.Result(text)
