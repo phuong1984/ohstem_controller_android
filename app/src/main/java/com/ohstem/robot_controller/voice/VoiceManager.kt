@@ -6,6 +6,7 @@ sealed class VoiceState {
     object Idle : VoiceState()
     object Initializing : VoiceState()
     object Listening : VoiceState()
+    data class Partial(val text: String) : VoiceState()
     data class Result(val text: String) : VoiceState()
     data class Error(val message: String) : VoiceState()
 }
