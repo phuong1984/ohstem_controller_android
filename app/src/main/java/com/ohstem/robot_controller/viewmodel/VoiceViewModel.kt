@@ -9,9 +9,11 @@ import com.ohstem.robot_controller.repository.MappingRepository
 import com.ohstem.robot_controller.voice.VoiceManager
 import com.ohstem.robot_controller.voice.VoiceState
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.flow.collectLatest
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.withContext
 import javax.inject.Inject
 
 @HiltViewModel
@@ -70,7 +72,7 @@ class VoiceViewModel @Inject constructor(
                 ))
             }
 
-            voiceManager.initModel()
+            withContext(Dispatchers.IO) { voiceManager.initModel() }
         }
 
         viewModelScope.launch {
