@@ -45,6 +45,9 @@ class VoskVoiceManager @Inject constructor(
     }
 
     override fun startListening() {
+        if (_state.value is VoiceState.Listening) return
+        stopListening()
+
         if (ContextCompat.checkSelfPermission(
                 context,
                 Manifest.permission.RECORD_AUDIO
@@ -109,14 +112,14 @@ class VoskVoiceManager @Inject constructor(
     }
 
     override fun stopListening() {
-        recognitionJob?.cancel()
-        recognitionJob = null
         audioRecord?.apply {
             if (recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 stop()
             }
-            release()
         }
+        recognitionJob?.cancel()
+        recognitionJob = null
+        audioRecord?.release()
         audioRecord = null
         _state.value = VoiceState.Idle
     }
