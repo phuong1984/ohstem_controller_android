@@ -10,6 +10,8 @@ import com.ohstem.robot_controller.gesture.GestureManager
 import com.ohstem.robot_controller.gesture.GestureState
 import com.ohstem.robot_controller.repository.MappingRepository
 import dagger.hilt.android.lifecycle.HiltViewModel
+import kotlinx.coroutines.flow.MutableStateFlow
+import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.flow.first
 import kotlinx.coroutines.launch
 import javax.inject.Inject
@@ -22,6 +24,9 @@ class GestureViewModel @Inject constructor(
 ) : ViewModel() {
 
     val state = gestureManager.state
+
+    private val _isDetecting = MutableStateFlow(false)
+    val isDetecting: StateFlow<Boolean> = _isDetecting
 
     init {
         viewModelScope.launch {
@@ -80,8 +85,15 @@ class GestureViewModel @Inject constructor(
         }
     }
 
-    fun startDetection() = gestureManager.startDetection()
-    fun stopDetection() = gestureManager.stopDetection()
+    fun startDetection() {
+        gestureManager.startDetection()
+        _isDetecting.value = true
+    }
+
+    fun stopDetection() {
+        gestureManager.stopDetection()
+        _isDetecting.value = false
+    }
 
     fun processFrame(imageProxy: ImageProxy) {
         gestureManager.processFrame(imageProxy)

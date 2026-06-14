@@ -1,6 +1,8 @@
 package com.ohstem.robot_controller.ui.screens.gesture
 
 import android.Manifest
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.Preview
@@ -26,15 +28,16 @@ import java.util.concurrent.Executors
 @Composable
 fun GestureScreen(viewModel: GestureViewModel = hiltViewModel()) {
     val state by viewModel.state.collectAsState()
+    val isDetecting by viewModel.isDetecting.collectAsState()
     val lifecycleOwner = LocalLifecycleOwner.current
 
-    var useFrontCamera by remember { mutableStateOf(false) }
+    var useFrontCamera by remember { mutableStateOf(true) }
     var hasCameraPermission by remember { mutableStateOf(false) }
     val cameraExecutor = remember { Executors.newSingleThreadExecutor() }
 
     val permissionLauncher = rememberLauncherForActivityResult(
-        contract = androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
-    ) { granted ->
+        contract = ActivityResultContracts.RequestPermission()
+    ) { granted: Boolean ->
         hasCameraPermission = granted
     }
 
@@ -125,7 +128,7 @@ fun GestureScreen(viewModel: GestureViewModel = hiltViewModel()) {
                 Column(modifier = Modifier.padding(16.dp)) {
                     Text(
                         text = when (state) {
-                            is GestureState.Idle -> "Camera is OFF"
+                            is GestureState.Idle -> "Gesture Recognition is OFF"
                             is GestureState.Detecting -> "Detecting gestures..."
                             is GestureState.Result -> "Gesture: ${(state as GestureState.Result).gestureName}"
                             is GestureState.Error -> "Error: ${(state as GestureState.Error).message}"
@@ -141,12 +144,12 @@ fun GestureScreen(viewModel: GestureViewModel = hiltViewModel()) {
                     ) {
                         Button(
                             onClick = {
-                                if (state is GestureState.Detecting) viewModel.stopDetection()
+                                if (isDetecting) viewModel.stopDetection()
                                 else viewModel.startDetection()
                             },
                             modifier = Modifier.weight(1f)
                         ) {
-                            Text(if (state is GestureState.Detecting) "Stop Camera" else "Start Camera")
+                            Text(if (isDetecting) "Stop Recognition" else "Start Recognition")
                         }
 
                         OutlinedButton(
