@@ -1,7 +1,6 @@
 package com.ohstem.robot_controller.ui.screens.voice
 
 import android.Manifest
-import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.animation.core.LinearEasing
@@ -23,10 +22,8 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
-import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextAlign
 import androidx.compose.ui.unit.dp
-import androidx.core.content.ContextCompat
 import androidx.hilt.navigation.compose.hiltViewModel
 import com.ohstem.robot_controller.viewmodel.VoiceViewModel
 import com.ohstem.robot_controller.voice.VoiceRecognitionMode
@@ -34,11 +31,8 @@ import com.ohstem.robot_controller.voice.VoiceRecognitionMode
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 fun VoiceScreen(viewModel: VoiceViewModel = hiltViewModel()) {
-    val context = LocalContext.current
     val uiState by viewModel.uiState.collectAsState()
     val mode by viewModel.mode.collectAsState()
-    var permissionRequested by remember { mutableStateOf(false) }
-
     val permissionLauncher = rememberLauncherForActivityResult(
         ActivityResultContracts.RequestPermission()
     ) { granted ->
@@ -119,6 +113,7 @@ fun VoiceScreen(viewModel: VoiceViewModel = hiltViewModel()) {
             Spacer(modifier = Modifier.height(32.dp))
 
             val buttonSize = 96.dp
+            val primaryColor = MaterialTheme.colorScheme.primary
             val infiniteTransition = rememberInfiniteTransition(label = "pulse")
             val pulseProgress by infiniteTransition.animateFloat(
                 initialValue = 0f, targetValue = 1f,
@@ -128,7 +123,6 @@ fun VoiceScreen(viewModel: VoiceViewModel = hiltViewModel()) {
                 ),
                 label = "pulseProgress"
             )
-            val primaryColor = MaterialTheme.colorScheme.primary
             if (isActive) {
                 val ringAlpha = (1f - pulseProgress) * 0.35f
                 val ringScale = 1f + pulseProgress * 0.18f

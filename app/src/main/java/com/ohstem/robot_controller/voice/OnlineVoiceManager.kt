@@ -32,6 +32,10 @@ class OnlineVoiceManager @Inject constructor(
     private var restartPending = false
     private val restartHandler = Handler(Looper.getMainLooper())
 
+    companion object {
+        private const val ERROR_RECOGNIZER_BUSY = 11
+    }
+
     override fun initModel() {
         _state.value = VoiceState.Idle
     }
@@ -136,7 +140,7 @@ class OnlineVoiceManager @Inject constructor(
                             restartHandler.postDelayed(restartRunnable, 500L)
                         }
                     } else {
-                        _state.value = VoiceState.Partial(text)
+                        _state.value = VoiceState.Partial(normalized)
                     }
                 }
             }
@@ -157,7 +161,7 @@ class OnlineVoiceManager @Inject constructor(
                 if (error in listOf(
                         SpeechRecognizer.ERROR_NO_MATCH,
                         SpeechRecognizer.ERROR_SPEECH_TIMEOUT,
-                        11,
+                        ERROR_RECOGNIZER_BUSY,
                     )) {
                     restartHandler.removeCallbacks(restartRunnable)
                     restartHandler.post(restartRunnable)

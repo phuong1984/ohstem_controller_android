@@ -12,36 +12,14 @@ class MappingEngine @Inject constructor(
     private val repository: MappingRepository,
     private val bleManager: BleManager
 ) {
-    private var cache: Map<Pair<String, String>, Pair<String?, String?>>? = null
-
-    private suspend fun loadCache() {
+    suspend fun handleInput(sourceType: String, sourceCode: String, isActivation: Boolean = true): String {
         val profiles = repository.getProfiles().first()
-        val activeProfile = profiles.find { it.isActive } ?: return
+        val activeProfile = profiles.find { it.isActive } ?: return ""
         val bindings = repository.getBindings(activeProfile.id).first()
         val actions = repository.getActions(activeProfile.id).first()
-        val map = mutableMapOf<Pair<String, String>, Pair<String?, String?>>()
-        for (b in bindings) {
-            val a = actions.find { it.id == b.virtualActionId }
-            if (a != null) {
-                map[Pair(b.sourceType, b.sourceCode)] = Pair(a.activationCommand, a.deactivationCommand)
-            }
-        }
-        cache = map
-    }
-
-    suspend fun handleInput(sourceType: String, sourceCode: String, isActivation: Boolean = true): String {
-        if (cache == null) loadCache()
-        val entry = cache?.get(Pair(sourceType, sourceCode))
-        val command = if (entry != null) {
-            if (isActivation) entry.first else entry.second
-        } else {
-            cache = null
-            loadCache()
-            val retry = cache?.get(Pair(sourceType, sourceCode))
-            if (retry != null) {
-                if (isActivation) retry.first else retry.second
-            } else null
-        }
+        val binding = bindings.find { it.sourceType == sourceType && it.sourceCode == sourceCode }
+        val action = binding?.let { actions.find { a -> a.id == it.virtualActionId } }
+        val command = if (isActivation) action?.activationCommand else action?.deactivationCommand
         command?.let {
             bleManager.sendCommand(it)
             return it

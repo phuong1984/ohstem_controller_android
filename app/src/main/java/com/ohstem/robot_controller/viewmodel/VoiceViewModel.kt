@@ -28,7 +28,7 @@ class VoiceViewModel @Inject constructor(
     private val repository: MappingRepository
 ) : ViewModel() {
 
-    val state = voiceManager.state
+    private val state = voiceManager.state
 
     private val _mode = MutableStateFlow(voiceManager.mode)
     val mode: StateFlow<VoiceRecognitionMode> = _mode
@@ -48,20 +48,12 @@ class VoiceViewModel @Inject constructor(
     private var captureWindowJob: Job? = null
     private var capturedText = ""
     private var captureSessionId = 0
-    private var consumedPrefix = ""
 
-    private fun stripConsumed(text: String): String {
-        return if (text.startsWith(consumedPrefix) && text.length > consumedPrefix.length) {
-            text.removePrefix(consumedPrefix).trim()
-        } else {
-            text
-        }
-    }
 
     init {
         viewModelScope.launch {
             withContext(Dispatchers.IO) { voiceManager.initModel() }
-            if (_uiState.value !is UiState.Error) {
+            if (voiceManager.state.value !is VoiceState.Error) {
                 _uiState.value = UiState.Ready
             }
         }
@@ -78,30 +70,30 @@ class VoiceViewModel @Inject constructor(
                                 delay(1500)
                                 if (session != captureSessionId) return@capture
                                 captureWindowJob = null
-                                val raw = capturedText
-                                val stripped = stripConsumed(raw)
-                                consumedPrefix = raw
+                                val text = capturedText
                                 capturedText = ""
                                 displayWindowJob?.cancel()
-                                _uiState.value = UiState.Listened(stripped)
+                                voiceManager.stopListening()
+                                _uiState.value = UiState.Listened(text)
                                 displayWindowJob = viewModelScope.launch display@{
                                     delay(1500)
                                     if (session != captureSessionId) return@display
+                                    voiceManager.startListening()
                                     _uiState.value = UiState.Listening()
                                 }
                             }
                         } else {
                             capturedText = voiceState.text
                         }
-                        _uiState.value = UiState.Listening(stripConsumed(capturedText))
+                        _uiState.value = UiState.Listening(capturedText)
                     }
                     is VoiceState.Result -> {
                         captureSessionId++
                         captureWindowJob?.cancel()
                         captureWindowJob = null
                         capturedText = ""
-                        consumedPrefix = ""
                         displayWindowJob?.cancel()
+                        voiceManager.stopListening()
                         val command = Normalizer.normalize(
                             voiceState.text.lowercase().trim(),
                             Normalizer.Form.NFC
@@ -112,6 +104,7 @@ class VoiceViewModel @Inject constructor(
                         _uiState.value = UiState.Listened("✓ " + voiceState.text, isMatched = true)
                         displayWindowJob = viewModelScope.launch {
                             delay(1500)
+                            voiceManager.startListening()
                             _uiState.value = UiState.Listening()
                         }
                     }
@@ -119,14 +112,19 @@ class VoiceViewModel @Inject constructor(
                         captureSessionId++
                         captureWindowJob?.cancel()
                         captureWindowJob = null
-                        val raw = voiceState.text
-                        val stripped = stripConsumed(raw)
-                        consumedPrefix = raw
+                        val text = voiceState.text
                         capturedText = ""
                         displayWindowJob?.cancel()
-                        _uiState.value = UiState.Listened(stripped)
-                        displayWindowJob = viewModelScope.launch {
+                        voiceManager.stopListening()
+                        val session = captureSessionId
+                        _uiState.value = UiState.Listening(text)
+                        displayWindowJob = viewModelScope.launch displayJob@{
                             delay(1500)
+                            if (session != captureSessionId) return@displayJob
+                            _uiState.value = UiState.Listened(text)
+                            delay(1500)
+                            if (session != captureSessionId) return@displayJob
+                            voiceManager.startListening()
                             _uiState.value = UiState.Listening()
                         }
                     }
@@ -135,7 +133,6 @@ class VoiceViewModel @Inject constructor(
                         captureWindowJob?.cancel()
                         captureWindowJob = null
                         capturedText = ""
-                        consumedPrefix = ""
                         _uiState.value = UiState.Listening()
                     }
                     is VoiceState.Idle -> { }
