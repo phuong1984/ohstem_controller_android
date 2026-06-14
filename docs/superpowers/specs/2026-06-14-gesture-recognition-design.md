@@ -93,9 +93,15 @@ Download URL: https://storage.googleapis.com/mediapipe-models/gesture_recognizer
 
 ## CameraX Setup (in GestureScreen)
 
+- `useFrontCamera` state: `remember { mutableStateOf(false) }`
+- Camera switch button toggles it and unbinds/rebinds CameraX
+- `cameraSelector` derived: if `useFrontCamera` → `CameraSelector.DEFAULT_FRONT_CAMERA` else `DEFAULT_BACK_CAMERA`
+- On camera switch: `cameraProvider.unbindAll()` then `cameraProvider.bindToLifecycle()` with new selector
+
 ```kotlin
 val lifecycleOwner = LocalLifecycleOwner.current
 val context = LocalContext.current
+var useFrontCamera by remember { mutableStateOf(false) }
 
 // Permission
 val permissionLauncher = rememberLauncherForActivityResult(
@@ -107,6 +113,8 @@ AndroidView(
     factory = { ctx ->
         PreviewView(ctx).apply {
             val cameraProvider = ProcessCameraProvider.getInstance(ctx).get()
+            val cameraSelector = if (useFrontCamera)
+                CameraSelector.DEFAULT_FRONT_CAMERA else CameraSelector.DEFAULT_BACK_CAMERA
             val preview = Preview.Builder().build().also { it.setSurfaceProvider(surfaceProvider) }
             val analyzer = ImageAnalysis.Builder()
                 .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
@@ -121,6 +129,7 @@ AndroidView(
 ## UI Behavior
 
 - Toggle button: Start/Stop Camera
+- Camera switch button: toggle between `CameraSelector.DEFAULT_BACK_CAMERA` and `CameraSelector.DEFAULT_FRONT_CAMERA`. Button icon reflects current camera (e.g., flip camera icon). Switching restarts the camera lifecycle.
 - Status card shows current state (Detecting, gesture name, errors)
 - Live camera preview fills the screen above the status card
 - Simple overlay text shows last detected gesture
