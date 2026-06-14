@@ -8,7 +8,6 @@ import android.os.Looper
 import android.speech.RecognitionListener
 import android.speech.RecognizerIntent
 import android.speech.SpeechRecognizer
-import android.util.Log
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import java.text.Normalizer
@@ -31,12 +30,7 @@ class OnlineVoiceManager @Inject constructor(
     private var lastSentCommand: String? = null
     private var sessionId = 0
     private var restartPending = false
-    private var recognitionIntent: Intent? = null
     private val restartHandler = Handler(Looper.getMainLooper())
-
-    companion object {
-        private const val TAG = "OnlineVoiceManager"
-    }
 
     override fun initModel() {
         _state.value = VoiceState.Idle
@@ -56,7 +50,6 @@ class OnlineVoiceManager @Inject constructor(
     private fun createSession() {
         sessionId++
         val currentSessionId = sessionId
-        Log.d(TAG, "createSession id=$currentSessionId")
 
         speechRecognizer?.destroy()
         speechRecognizer = null
@@ -76,13 +69,11 @@ class OnlineVoiceManager @Inject constructor(
             putExtra("android.speech.extra.SPEECH_INPUT_MINIMUM_LENGTH_MILLIS", 500L)
             putExtra("android.speech.extra.SPEECH_INPUT_COMPLETE_SILENCE_LENGTH_MILLIS", 500L)
         }
-        recognitionIntent = intent
 
         recognizer.setRecognitionListener(object : RecognitionListener {
             override fun onReadyForSpeech(params: Bundle?) {
                 if (currentSessionId != sessionId) return
                 _state.value = VoiceState.Listening
-                Log.d(TAG, "onReadyForSpeech id=$currentSessionId")
             }
 
             override fun onBeginningOfSpeech() {}
@@ -93,25 +84,14 @@ class OnlineVoiceManager @Inject constructor(
 
             override fun onEndOfSpeech() {
                 if (currentSessionId != sessionId) return
-                if (restartPending) {
-                    Log.d(TAG, "onEndOfSpeech id=$currentSessionId SKIP (restartPending)")
-                    return
-                }
-                Log.d(TAG, "onEndOfSpeech id=$currentSessionId")
+                if (restartPending) return
                 restartHandler.removeCallbacks(restartRunnable)
                 restartHandler.post(restartRunnable)
             }
 
             override fun onResults(results: Bundle?) {
-                if (currentSessionId != sessionId) {
-                    Log.d(TAG, "onResults STALE id=$currentSessionId != $sessionId")
-                    return
-                }
-                if (restartPending) {
-                    Log.d(TAG, "onResults id=$currentSessionId SKIP (restartPending)")
-                    return
-                }
-                Log.d(TAG, "onResults id=$currentSessionId")
+                if (currentSessionId != sessionId) return
+                if (restartPending) return
                 val text = results
                     ?.getStringArrayList(SpeechRecognizer.RESULTS_RECOGNITION)
                     ?.firstOrNull()
@@ -155,7 +135,6 @@ class OnlineVoiceManager @Inject constructor(
                             restartHandler.removeCallbacks(restartRunnable)
                             restartHandler.postDelayed(restartRunnable, 500L)
                         }
-                        Log.d(TAG, "Partial keyword: $matchedWord (restart in 500ms)")
                     } else {
                         _state.value = VoiceState.Partial(text)
                     }
@@ -165,10 +144,7 @@ class OnlineVoiceManager @Inject constructor(
             override fun onEvent(eventType: Int, params: Bundle?) {}
 
             override fun onError(error: Int) {
-                if (currentSessionId != sessionId) {
-                    Log.d(TAG, "onError STALE id=$currentSessionId != $sessionId, ignoring")
-                    return
-                }
+                if (currentSessionId != sessionId) return
                 val msg = when (error) {
                     SpeechRecognizer.ERROR_NO_MATCH -> "No speech matched"
                     SpeechRecognizer.ERROR_SPEECH_TIMEOUT -> "No speech detected"
@@ -177,7 +153,6 @@ class OnlineVoiceManager @Inject constructor(
                     SpeechRecognizer.ERROR_SERVER -> "Server error"
                     else -> "Error code: $error"
                 }
-                Log.w(TAG, "onError id=$currentSessionId: $msg")
                 lastSentCommand = null
                 if (error in listOf(
                         SpeechRecognizer.ERROR_NO_MATCH,
@@ -197,7 +172,6 @@ class OnlineVoiceManager @Inject constructor(
     }
 
     private val restartRunnable = Runnable {
-        Log.d(TAG, "restartRunnable firing")
         restartPending = false
         if (isListening) {
             isListening = false

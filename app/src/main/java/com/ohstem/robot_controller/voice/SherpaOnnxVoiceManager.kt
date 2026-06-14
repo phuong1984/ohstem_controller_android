@@ -128,14 +128,6 @@ class SherpaOnnxVoiceManager @Inject constructor(
         _state.value = VoiceState.Idle
     }
 
-    fun destroy() {
-        stopListening()
-        vad?.release()
-        vad = null
-        recognizer?.release()
-        recognizer = null
-    }
-
     private fun runRecognitionLoop() {
         val minBufferSize = AudioRecord.getMinBufferSize(
             sampleRate,
@@ -165,12 +157,10 @@ class SherpaOnnxVoiceManager @Inject constructor(
             val frameSamples = (sampleRate * 0.03).toInt()
             val readBuf = ShortArray(frameSamples)
             val floatBuf = FloatArray(frameSamples)
-            var frameCount = 0
 
             while (isListening && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
                 val samplesRead = record.read(readBuf, 0, readBuf.size)
                 if (samplesRead <= 0) continue
-                frameCount++
 
                 for (i in 0 until samplesRead) {
                     floatBuf[i] = readBuf[i].toFloat() / 32768f
@@ -183,10 +173,6 @@ class SherpaOnnxVoiceManager @Inject constructor(
                     vad!!.pop()
                     processSegment(segment)
                 }
-
-                if (frameCount % 100 == 0) {
-                    Log.d(TAG, "Frame $frameCount: vad.isSpeechDetected=${vad?.isSpeechDetected()}")
-                }
             }
 
             vad?.flush()
@@ -195,8 +181,6 @@ class SherpaOnnxVoiceManager @Inject constructor(
                 vad!!.pop()
                 processSegment(segment)
             }
-
-            Log.d(TAG, "Recognition loop ended, isListening=$isListening")
         } finally {
             if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) record.stop()
             record.release()
@@ -204,12 +188,7 @@ class SherpaOnnxVoiceManager @Inject constructor(
     }
 
     private fun processSegment(segment: SpeechSegment) {
-        if (segment.samples.size < sampleRate / 5) {
-            Log.d(TAG, "Segment too short: ${segment.samples.size} < ${sampleRate / 5}")
-            return
-        }
-
-        Log.d(TAG, "Processing segment: len=${segment.samples.size} samples")
+        if (segment.samples.size < sampleRate / 5) return
 
         val r = recognizer ?: return
         try {
@@ -218,11 +197,9 @@ class SherpaOnnxVoiceManager @Inject constructor(
                 r.decode(stream)
                 val result = r.getResult(stream)
                 val text = result.text.trim().lowercase()
-                Log.d(TAG, "Recognition result: \"$text\"")
                 if (text.isNotEmpty()) {
                     val matched = matchAndEmitResult(text)
                     if (!matched) {
-                        Log.d(TAG, "No keyword match -> emit UtteranceEnd")
                         _state.value = VoiceState.UtteranceEnd(text)
                     }
                 }
@@ -234,16 +211,13 @@ class SherpaOnnxVoiceManager @Inject constructor(
 
     private fun matchAndEmitResult(text: String): Boolean {
         val normalized = Normalizer.normalize(text, Normalizer.Form.NFC)
-        Log.d(TAG, "Matching \"$normalized\" against $grammarWords")
         for (word in grammarWords) {
             val normalizedWord = Normalizer.normalize(word, Normalizer.Form.NFC)
             if (normalized.contains(normalizedWord, ignoreCase = true)) {
-                Log.d(TAG, "Matched: \"$normalizedWord\" -> emit Result")
                 _state.value = VoiceState.Result(normalizedWord)
                 return true
             }
         }
-        Log.d(TAG, "No match found for \"$normalized\"")
         return false
     }
 }
