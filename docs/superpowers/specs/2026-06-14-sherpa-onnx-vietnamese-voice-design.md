@@ -23,7 +23,7 @@ Files bundled in `app/src/main/assets/sherpa-onnx-zipformer-vi-30M-int8-2026-02-
 
 ## Dependencies
 
-- **Add:** `com.github.k2-fsa:sherpa-onnx:v1.13.0` via JitPack (`https://jitpack.io`) in `settings.gradle.kts`
+- **Add:** `com.github.k2-fsa:sherpa-onnx:v1.13.0` via JitPack (`https://jitpack.io`) in `settings.gradle.kts` (add `maven { url = uri("https://jitpack.io") }` to `dependencyResolutionManagement.repositories`)
 - **Remove:** `com.alphacephei:vosk-android:0.3.47` from version catalog and build file
 - Update `gradle/libs.versions.toml`: remove `vosk` version, remove `vosk-android` library entry
 - Update `app/build.gradle.kts`: remove `implementation(libs.vosk.android)` line
@@ -92,6 +92,8 @@ Implements `VoiceManager` interface. Architecture:
 
 ### Files to Delete
 - `app/src/main/java/com/ohstem/robot_controller/voice/VoskVoiceManager.kt`
+- `app/src/main/assets/vosk-model-vn/` (entire directory, ~168MB)
+- `app/src/main/assets/vosk-model-small-vn/` (entire directory)
 
 ## No Changes To
 
