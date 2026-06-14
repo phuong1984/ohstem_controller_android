@@ -1,8 +1,10 @@
 package com.ohstem.robot_controller.di
 
 import android.content.Context
+import com.ohstem.robot_controller.voice.HybridVoiceManager
+import com.ohstem.robot_controller.voice.OnlineVoiceManager
+import com.ohstem.robot_controller.voice.SherpaOnnxVoiceManager
 import com.ohstem.robot_controller.voice.VoiceManager
-import com.ohstem.robot_controller.voice.VoskVoiceManager
 import dagger.Module
 import dagger.Provides
 import dagger.hilt.InstallIn
@@ -16,7 +18,26 @@ object VoiceModule {
 
     @Provides
     @Singleton
-    fun provideVoiceManager(@ApplicationContext context: Context): VoiceManager {
-        return VoskVoiceManager(context)
+    fun provideSherpaOnnxVoiceManager(
+        @ApplicationContext context: Context,
+    ): SherpaOnnxVoiceManager {
+        return SherpaOnnxVoiceManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideOnlineVoiceManager(
+        @ApplicationContext context: Context,
+    ): OnlineVoiceManager {
+        return OnlineVoiceManager(context)
+    }
+
+    @Provides
+    @Singleton
+    fun provideVoiceManager(
+        sherpaOnnxManager: SherpaOnnxVoiceManager,
+        onlineManager: OnlineVoiceManager,
+    ): VoiceManager {
+        return HybridVoiceManager(sherpaOnnxManager, onlineManager)
     }
 }

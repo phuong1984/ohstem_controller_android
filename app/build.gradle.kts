@@ -74,7 +74,7 @@ dependencies {
     implementation(libs.nordic.ble)
     implementation(libs.nordic.ble.ktx)
     
-    implementation(libs.sherpa.onnx)
+    implementation(files("libs/sherpa-onnx-1.13.0.aar"))
     
     implementation(libs.androidx.camera.core)
     implementation(libs.androidx.camera.camera2)

@@ -1,10 +1,13 @@
 package com.ohstem.robot_controller.voice
 
+import android.Manifest
 import android.content.Context
+import android.content.pm.PackageManager
 import android.media.AudioFormat
 import android.media.AudioRecord
 import android.media.MediaRecorder
 import android.util.Log
+import androidx.core.content.ContextCompat
 import com.k2fsa.sherpa.onnx.*
 import kotlinx.coroutines.*
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -12,7 +15,6 @@ import kotlinx.coroutines.flow.StateFlow
 import java.text.Normalizer
 import javax.inject.Inject
 import javax.inject.Singleton
-import kotlin.math.sqrt
 
 @Singleton
 class SherpaOnnxVoiceManager @Inject constructor(
@@ -23,6 +25,7 @@ class SherpaOnnxVoiceManager @Inject constructor(
         private const val TAG = "SherpaOnnxVoiceManager"
     }
 
+    @Volatile
     override var mode = VoiceRecognitionMode.OFFLINE
 
     private val _state = MutableStateFlow<VoiceState>(VoiceState.Idle)
@@ -30,8 +33,12 @@ class SherpaOnnxVoiceManager @Inject constructor(
 
     @Volatile
     private var isListening = false
+    @Volatile
     private var recognizer: OfflineRecognizer? = null
+    @Volatile
+    private var vad: Vad? = null
     private var recognitionJob: Job? = null
+    @Volatile
     private var grammarWords: List<String> = emptyList()
 
     private val sampleRate = 16000
@@ -61,6 +68,21 @@ class SherpaOnnxVoiceManager @Inject constructor(
                     decodingMethod = "greedy_search",
                 )
             )
+            vad = Vad(
+                context.assets,
+                VadModelConfig(
+                    sileroVadModelConfig = SileroVadModelConfig(
+                        model = "silero_vad.onnx",
+                        threshold = 0.5f,
+                        minSilenceDuration = 0.3f,
+                        minSpeechDuration = 0.25f,
+                        windowSize = 512,
+                        maxSpeechDuration = 10.0f,
+                    ),
+                    sampleRate = sampleRate,
+                    numThreads = 1,
+                )
+            )
             _state.value = VoiceState.Idle
         } catch (e: Exception) {
             Log.e(TAG, "initModel failed", e)
@@ -74,9 +96,14 @@ class SherpaOnnxVoiceManager @Inject constructor(
 
     override fun startListening() {
         if (isListening) return
+        if (ContextCompat.checkSelfPermission(context, Manifest.permission.RECORD_AUDIO)
+            != PackageManager.PERMISSION_GRANTED) {
+            _state.value = VoiceState.Error("RECORD_AUDIO permission not granted")
+            return
+        }
         stopListening()
 
-        if (recognizer == null) {
+        if (recognizer == null || vad == null) {
             _state.value = VoiceState.Error("Recognizer not initialized")
             return
         }
@@ -101,6 +128,14 @@ class SherpaOnnxVoiceManager @Inject constructor(
         _state.value = VoiceState.Idle
     }
 
+    fun destroy() {
+        stopListening()
+        vad?.release()
+        vad = null
+        recognizer?.release()
+        recognizer = null
+    }
+
     private fun runRecognitionLoop() {
         val minBufferSize = AudioRecord.getMinBufferSize(
             sampleRate,
@@ -110,7 +145,7 @@ class SherpaOnnxVoiceManager @Inject constructor(
         val bufferSize = maxOf(minBufferSize * 4, 4096)
 
         val record = AudioRecord(
-            MediaRecorder.AudioSource.VOICE_RECOGNITION,
+            MediaRecorder.AudioSource.MIC,
             sampleRate,
             AudioFormat.CHANNEL_IN_MONO,
             AudioFormat.ENCODING_PCM_16BIT,
@@ -118,142 +153,97 @@ class SherpaOnnxVoiceManager @Inject constructor(
         )
 
         if (record.state != AudioRecord.STATE_INITIALIZED) {
+            Log.e(TAG, "AudioRecord init failed, state=${record.state}")
             record.release()
             _state.value = VoiceState.Error("AudioRecord init failed")
             return
         }
 
-        record.startRecording()
+        try {
+            record.startRecording()
 
-        val ringBufferSize = sampleRate * 5
-        val ringBuffer = ShortArray(ringBufferSize)
-        var ringWritePos = 0
+            val frameSamples = (sampleRate * 0.03).toInt()
+            val readBuf = ShortArray(frameSamples)
+            val floatBuf = FloatArray(frameSamples)
+            var frameCount = 0
 
-        val frameSamples = (sampleRate * 0.03).toInt()
-        val readBuf = ShortArray(frameSamples)
+            while (isListening && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
+                val samplesRead = record.read(readBuf, 0, readBuf.size)
+                if (samplesRead <= 0) continue
+                frameCount++
 
-        var noiseFloor = 0.0
-        var speechStart = -1
-        var speechEnd = -1
-        var silenceFrames = 0
-        val silenceThresholdFrames = (0.5 / 0.03).toInt()
-        val minSpeechFrames = (0.2 / 0.03).toInt()
-
-        while (isListening && record.recordingState == AudioRecord.RECORDSTATE_RECORDING) {
-            val samplesRead = record.read(readBuf, 0, readBuf.size)
-            if (samplesRead <= 0) continue
-
-            var rms = 0.0
-            for (i in 0 until samplesRead) {
-                val s = readBuf[i].toDouble()
-                rms += s * s
-            }
-            rms = sqrt(rms / samplesRead)
-
-            if (noiseFloor == 0.0) {
-                noiseFloor = rms
-            } else {
-                noiseFloor = noiseFloor * 0.95 + rms * 0.05
-            }
-
-            for (i in 0 until samplesRead) {
-                ringBuffer[ringWritePos] = readBuf[i]
-                ringWritePos = (ringWritePos + 1) % ringBufferSize
-            }
-
-            val speechThreshold = noiseFloor * 2.0
-            val silenceThreshold = noiseFloor * 1.5
-
-            if (speechStart < 0) {
-                if (rms > speechThreshold) {
-                    val preRollSamples = frameSamples * 2
-                    speechStart = (ringWritePos - samplesRead - preRollSamples + ringBufferSize) % ringBufferSize
-                    speechEnd = ringWritePos
-                    silenceFrames = 0
+                for (i in 0 until samplesRead) {
+                    floatBuf[i] = readBuf[i].toFloat() / 32768f
                 }
-            } else {
-                speechEnd = ringWritePos
-                if (rms < silenceThreshold) {
-                    silenceFrames++
-                    if (silenceFrames >= silenceThresholdFrames) {
-                        val segmentLen = if (speechEnd >= speechStart) {
-                            speechEnd - speechStart
-                        } else {
-                            ringBufferSize - speechStart + speechEnd
-                        }
-                        if (segmentLen.toDouble() / frameSamples >= minSpeechFrames) {
-                            processSpeechSegment(ringBuffer, speechStart, speechEnd, ringBufferSize)
-                        }
-                        speechStart = -1
-                        speechEnd = -1
-                        silenceFrames = 0
-                    }
-                } else {
-                    silenceFrames = 0
+
+                vad?.acceptWaveform(floatBuf.copyOfRange(0, samplesRead))
+
+                while (vad?.empty() == false) {
+                    val segment = vad!!.front()
+                    vad!!.pop()
+                    processSegment(segment)
+                }
+
+                if (frameCount % 100 == 0) {
+                    Log.d(TAG, "Frame $frameCount: vad.isSpeechDetected=${vad?.isSpeechDetected()}")
                 }
             }
-        }
 
-        if (speechStart >= 0) {
-            val segmentLen = if (speechEnd >= speechStart) {
-                speechEnd - speechStart
-            } else {
-                ringBufferSize - speechStart + speechEnd
+            vad?.flush()
+            while (vad?.empty() == false) {
+                val segment = vad!!.front()
+                vad!!.pop()
+                processSegment(segment)
             }
-            if (segmentLen.toDouble() / frameSamples >= minSpeechFrames) {
-                processSpeechSegment(ringBuffer, speechStart, speechEnd, ringBufferSize)
-            }
-        }
 
-        runCatching {
+            Log.d(TAG, "Recognition loop ended, isListening=$isListening")
+        } finally {
             if (record.recordingState == AudioRecord.RECORDSTATE_RECORDING) record.stop()
             record.release()
         }
     }
 
-    private fun processSpeechSegment(
-        ringBuffer: ShortArray,
-        startPos: Int,
-        endPos: Int,
-        ringBufferSize: Int,
-    ) {
-        val segmentLen: Int
-        val segment: ShortArray
-        if (endPos > startPos) {
-            segmentLen = endPos - startPos
-            segment = ringBuffer.copyOfRange(startPos, endPos)
-        } else {
-            segmentLen = ringBufferSize - startPos + endPos
-            segment = ShortArray(segmentLen)
-            val firstPart = ringBufferSize - startPos
-            System.arraycopy(ringBuffer, startPos, segment, 0, firstPart)
-            System.arraycopy(ringBuffer, 0, segment, firstPart, endPos)
+    private fun processSegment(segment: SpeechSegment) {
+        if (segment.samples.size < sampleRate / 5) {
+            Log.d(TAG, "Segment too short: ${segment.samples.size} < ${sampleRate / 5}")
+            return
         }
 
-        val floatAudio = FloatArray(segmentLen) { i ->
-            segment[i].toFloat() / 32768f
-        }
+        Log.d(TAG, "Processing segment: len=${segment.samples.size} samples")
 
         val r = recognizer ?: return
-        r.createStream().use { stream ->
-            stream.acceptWaveform(floatAudio, sampleRate)
-            r.decode(stream)
-            val text = r.getResult(stream).text.trim().lowercase()
-            if (text.isNotEmpty()) {
-                _state.value = VoiceState.Partial(text)
-                matchAndEmitResult(text)
+        try {
+            r.createStream().use { stream ->
+                stream.acceptWaveform(segment.samples, sampleRate)
+                r.decode(stream)
+                val result = r.getResult(stream)
+                val text = result.text.trim().lowercase()
+                Log.d(TAG, "Recognition result: \"$text\"")
+                if (text.isNotEmpty()) {
+                    val matched = matchAndEmitResult(text)
+                    if (!matched) {
+                        Log.d(TAG, "No keyword match -> emit UtteranceEnd")
+                        _state.value = VoiceState.UtteranceEnd(text)
+                    }
+                }
             }
+        } catch (e: Exception) {
+            Log.e(TAG, "Recognition error", e)
         }
     }
 
-    private fun matchAndEmitResult(text: String) {
+    private fun matchAndEmitResult(text: String): Boolean {
         val normalized = Normalizer.normalize(text, Normalizer.Form.NFC)
+        Log.d(TAG, "Matching \"$normalized\" against $grammarWords")
         for (word in grammarWords) {
             val normalizedWord = Normalizer.normalize(word, Normalizer.Form.NFC)
             if (normalized.contains(normalizedWord, ignoreCase = true)) {
+                Log.d(TAG, "Matched: \"$normalizedWord\" -> emit Result")
                 _state.value = VoiceState.Result(normalizedWord)
-                return
+                return true
             }
         }
+        Log.d(TAG, "No match found for \"$normalized\"")
+        return false
     }
 }
